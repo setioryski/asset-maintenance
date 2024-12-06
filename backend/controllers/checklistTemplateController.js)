@@ -1,0 +1,111 @@
+const { Checklist_Template, Checklist_Template_Item, Division } = require('../models');
+const { Op } = require('sequelize');
+
+exports.getAllTemplates = async (req, res) => {
+  try {
+    const templates = await Checklist_Template.findAll({
+      include: [
+        { model: Division, attributes: ['division_name'] },
+        { model: Checklist_Template_Item, as: 'Checklist_Template_Items' },
+      ],
+    });
+    res.json(templates);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.getTemplateById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const template = await Checklist_Template.findByPk(id, {
+      include: [
+        { model: Division, attributes: ['division_name'] },
+        { model: Checklist_Template_Item, as: 'Checklist_Template_Items' },
+      ],
+    });
+    if (!template) return res.status(404).json({ message: 'Template not found' });
+    res.json(template);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.createTemplate = async (req, res) => {
+  const { template_name, division_id, items } = req.body;
+  try {
+    const template = await Checklist_Template.create({
+      template_name,
+      division_id,
+      creation_date: new Date(),
+      version_number: 1,
+    });
+
+    if (items && items.length > 0) {
+      const templateItems = items.map(item => ({
+        template_id: template.template_id,
+        item_description: item.description,
+      }));
+      await Checklist_Template_Item.bulkCreate(templateItems);
+    }
+
+    res.status(201).json(template);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.updateTemplate = async (req, res) => {
+  const { id } = req.params;
+  const { template_name, division_id, items } = req.body;
+
+  try {
+    const oldTemplate = await Checklist_Template.findByPk(id, {
+      include: ['Checklist_Template_Items'],
+    });
+    if (!oldTemplate) return res.status(404).json({ message: 'Template not found' });
+
+    // Buat versi baru
+    const newVersionNumber = oldTemplate.version_number + 1;
+    const newTemplate = await Checklist_Template.create({
+      template_name: template_name || oldTemplate.template_name,
+      division_id: division_id || oldTemplate.division_id,
+      creation_date: new Date(),
+      version_number: newVersionNumber,
+    });
+
+    // Salin item checklist dari versi lama
+    const oldItems = oldTemplate.Checklist_Template_Items.map(item => ({
+      template_id: newTemplate.template_id,
+      item_description: item.item_description,
+    }));
+    await Checklist_Template_Item.bulkCreate(oldItems);
+
+    // Tambahkan atau edit item sesuai input
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await Checklist_Template_Item.create({
+          template_id: newTemplate.template_id,
+          item_description: item.description,
+        });
+      }
+    }
+
+    res.json(newTemplate);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+exports.deleteTemplate = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const template = await Checklist_Template.findByPk(id);
+    if (!template) return res.status(404).json({ message: 'Template not found' });
+
+    await template.destroy();
+    res.json({ message: 'Template deleted' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
